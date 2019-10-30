@@ -1,25 +1,8 @@
 const fs = require('fs');
-const path = require('path');
-const lodash = require('lodash');
+const pathLib = require('path');
 const jsdocApi = require('jsdoc-api');
 const jsdocParse = require('jsdoc-parse');
 const { itemsToMarkdown } = require('./items');
-
-function jsdocToMd(inputPath, outputPath) {
-  const files = fs.statSync(inputPath).isDirectory() ? `${inputPath}/**/*.js` : inputPath;
-
-  const jsdocData = jsdocApi.explainSync({ files });
-  const fullDataArray = parseJsDoc(jsdocData);
-
-  const ownerToArray = lodash.groupBy(fullDataArray, 'memberof');
-  const markdownString = lodash.map(ownerToArray, (array, owner) => dumpFile(array, owner)).join('');
-
-  if (outputPath) {
-    fs.writeFileSync(outputPath, markdownString);
-  }
-
-  return markdownString;
-}
 
 function parseJsDoc(jsdocData) {
   const memberArray = [];
@@ -28,7 +11,6 @@ function parseJsDoc(jsdocData) {
   jsdocParse(jsdocData).forEach(data => {
     switch (data.kind) {
       case 'class':
-        data.kind = 'module';
         data.memberof = data.name;
         break;
 
@@ -45,21 +27,53 @@ function parseJsDoc(jsdocData) {
     if (data.memberof) {
       memberArray.push(data);
     } else {
-      data.memberof = path.parse(data.meta.filename).name;
+      data.memberof = pathLib.parse(data.meta.filename).name;
       globalArray.push(data);
     }
   });
   return [...memberArray, ...globalArray];
 }
 
-function dumpFile(array, head) {
-  // array.forEach(({ kind, name, meta }) => console.log(kind, name, (meta || {}).filename)); // for DEBUG
+// ============================================================================
+function jsdocToMd(inputPath, outputPath) {
+  const stack = fs.statSync(inputPath).isDirectory() ? [] : [inputPath];
 
+  const markdownString = dumpDir(inputPath, stack);
+
+  if (outputPath) {
+    fs.writeFileSync(outputPath, markdownString);
+  }
+
+  return markdownString;
+}
+
+function dumpDir(path, stack = []) {
+  if (fs.statSync(path).isDirectory()) {
+    return fs.readdirSync(path)
+      .map(name => dumpDir(pathLib.resolve(path, name), [...stack, name]))
+      .join('\n');
+  } else {
+    if (!path.endsWith('.js')) {
+      return '';
+    }
+
+    const array = parseJsDoc(jsdocApi.explainSync({ files: path }));
+    if (!array.length) {
+      return '';
+    }
+
+    const head = pathLib.parse(stack.join('.')).name;
+    return dumpFile(head, array);
+  }
+}
+
+function dumpFile(head, array) {
+  // array.forEach(({ kind, name, meta }) => console.log(kind, name, (meta || {}).filename)); // for DEBUG
   return `
 ----------
 # ${head}
 
-${array.filter(({ kind }) => kind === 'module').map(dumpModule).join('\n')}
+${array.filter(({ kind }) => kind === 'class').map(dumpClass).join('\n')}
 ${array.filter(({ kind }) => kind === 'member').map(dumpMember).join('\n')}
 ${array.filter(({ kind }) => kind === 'function').map(dumpFunction).join('\n')}`;
 }
@@ -68,7 +82,7 @@ function dumpHead({ memberof, name }) {
   return memberof ? `${memberof}.${name}` : name;
 }
 
-function dumpModule({ description }) {
+function dumpClass({ description }) {
   return formatText(description);
 }
 
