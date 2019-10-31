@@ -20,6 +20,12 @@ function parseJsDoc(jsdocData) {
         data.name = 'constructor';
         break;
 
+      case 'member':
+        if (data.returns) {
+          data.kind = 'function';
+        }
+        break;
+
       default:
         break;
     }
@@ -114,7 +120,7 @@ function dumpParams({ params = [] }) {
   const items = params.map(p => {
     return {
       Name: paramName(p),
-      Type: typeName(p.type).replace(/\|/g, '\\|'),
+      Type: typeName(p.type),
       Required: !p.optional,
       Default: p.defaultvalue,
       Description: p.description,
@@ -159,7 +165,7 @@ function paramName(param) {
 }
 
 function typeName({ names = [] } = {}) {
-  return names.join('|');
+  return names.join(',');
 }
 
 module.exports = {
